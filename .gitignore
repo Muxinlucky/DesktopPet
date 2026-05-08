@@ -5,6 +5,8 @@ node_modules
 dist
 dist-ssr
 
+codexpet/
+
 # Logs
 logs
 *.log
@@ -45,3 +47,9 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# 拦截所有压缩包
+*.zip
+# 额外保险：拦截可能存在的 7z 或 rar
+*.7z
+*.rar
