@@ -174,6 +174,11 @@ let lastActivityTime = Date.now();
 
 // ── Always-on-Top State (persisted) ──
 let isAlwaysOnTop = localStorage.getItem("pet-always-on-top") !== "false";
+// ── Focus Mode State ──
+let isFocusMode = false;
+let focusEndTime = 0;
+let focusIntervalId: ReturnType<typeof setInterval> | null = null;
+let cachedAlwaysOnTop = true;
 
 function forceEndDrag(engine: PetEngine, container: HTMLElement): void {
   if (hasStartedDragging) {
@@ -241,7 +246,11 @@ async function setupDrag(engine: PetEngine): Promise<void> {
       forceEndDrag(engine, container);
     } else {
       container.classList.remove("is-lifting");
-      spawnParticles(e.clientX, e.clientY);
+      if (isFocusMode) {
+        showSpeech("嘘，专心工作...", 2000);
+      } else {
+        spawnParticles(e.clientX, e.clientY);
+      }
     }
 
     isMouseDown = false;
@@ -293,8 +302,54 @@ async function openImportDialog(engine: PetEngine): Promise<void> {
   }
 }
 
+async function startFocusMode(minutes: number, engine: PetEngine): Promise<void> {
+  if (focusIntervalId) {
+    clearInterval(focusIntervalId);
+    focusIntervalId = null;
+  }
+  const appWindow = getCurrentWindow();
+  cachedAlwaysOnTop = isAlwaysOnTop;
+  await appWindow.setAlwaysOnTop(false);
+
+  isFocusMode = true;
+  engine.applyState("waiting");
+  focusEndTime = Date.now() + minutes * 60000;
+  showSpeech(`专注 ${minutes} 分钟，开始!`, 3000);
+
+  focusIntervalId = setInterval(async () => {
+    const remaining = Math.max(0, focusEndTime - Date.now());
+    if (remaining <= 0) {
+      await endFocusMode(true, engine);
+      return;
+    }
+    const min = Math.floor(remaining / 60000);
+    const sec = Math.floor((remaining % 60000) / 1000);
+    showSpeech(`专注中 ${min}:${sec.toString().padStart(2, "0")}`, 2000);
+  }, 1000);
+}
+
+async function endFocusMode(_isAuto: boolean, engine: PetEngine): Promise<void> {
+  if (focusIntervalId) {
+    clearInterval(focusIntervalId);
+    focusIntervalId = null;
+  }
+  isFocusMode = false;
+
+  const appWindow = getCurrentWindow();
+  await appWindow.setAlwaysOnTop(true);
+  engine.applyState("jumping");
+  showSpeech("专注结束，辛苦啦!", 8000);
+
+  setTimeout(async () => {
+    if (!isExiting) {
+      engine.applyState("idle");
+      await appWindow.setAlwaysOnTop(cachedAlwaysOnTop);
+    }
+  }, 8000);
+}
+
 async function setupContextMenu(engine: PetEngine): Promise<void> {
-  const { Menu } = await import("@tauri-apps/api/menu");
+  const { Menu, Submenu } = await import("@tauri-apps/api/menu");
   const appWindow = getCurrentWindow();
   const hitbox = document.getElementById("pet-hitbox");
   if (!hitbox) return;
@@ -329,6 +384,18 @@ async function setupContextMenu(engine: PetEngine): Promise<void> {
           localStorage.setItem("pet-always-on-top", String(isAlwaysOnTop));
           await appWindow.setAlwaysOnTop(isAlwaysOnTop);
         }},
+        { item: "Separator" },
+        await Submenu.new({
+          text: "定时专注",
+          items: [
+            { id: "focus-15", text: "15 分钟", action: () => startFocusMode(15, engine) },
+            { id: "focus-25", text: "25 分钟", action: () => startFocusMode(25, engine) },
+            { id: "focus-45", text: "45 分钟", action: () => startFocusMode(45, engine) },
+            { id: "focus-60", text: "60 分钟", action: () => startFocusMode(60, engine) },
+            { item: "Separator" as const },
+            { id: "focus-cancel", text: "退出专注", action: () => endFocusMode(false, engine) },
+          ],
+        }),
         { item: "Separator" },
         { id: "quit", text: "退出", action: () => {
           isExiting = true;
@@ -401,7 +468,7 @@ function setupBioClock(engine: PetEngine): void {
       // cursor_position may not be available, ignore
     }
 
-    if (isExiting || isMouseDown || hasStartedDragging) return;
+    if (isExiting || isMouseDown || hasStartedDragging || isFocusMode) return;
 
     // 23:00 late night trigger
     const now = new Date();
@@ -438,7 +505,7 @@ function setupWakeUp(engine: PetEngine): void {
   if (!hitbox) return;
 
   hitbox.addEventListener("mouseenter", () => {
-    if (isExiting) return;
+    if (isExiting || isFocusMode) return;
     const state = engine.currentState;
     if (state === "waiting" || state === "review") {
       engine.applyState("jumping");
