@@ -50,6 +50,25 @@ const CODEX_ATLAS: PetAtlas = {
   },
 };
 
+// ── Audio SFX (HTML5 Audio, no external libs) ──
+
+const sfx = {
+  pop: new Audio(new URL("../assets/audio/pop.mp3", import.meta.url).href),
+  boing: new Audio(new URL("../assets/audio/boing.mp3", import.meta.url).href),
+  bubble: new Audio(new URL("../assets/audio/bubble.mp3", import.meta.url).href),
+  bell: new Audio(new URL("../assets/audio/bell.mp3", import.meta.url).href),
+};
+
+Object.values(sfx).forEach((audio) => {
+  audio.volume = 0.6;
+});
+
+function playSound(type: keyof typeof sfx): void {
+  const audio = sfx[type];
+  audio.currentTime = 0;
+  audio.play().catch((e) => console.warn("Audio play failed:", e));
+}
+
 // ── PetEngine ──
 
 class PetEngine {
@@ -179,12 +198,14 @@ let isFocusMode = false;
 let focusEndTime = 0;
 let focusIntervalId: ReturnType<typeof setInterval> | null = null;
 let cachedAlwaysOnTop = true;
+let isBubbleLocked = false;
 
 function forceEndDrag(engine: PetEngine, container: HTMLElement): void {
   if (hasStartedDragging) {
     engine.applyState("idle");
     container.classList.remove("is-lifting");
     container.classList.add("is-dropping");
+    playSound("boing");
     setTimeout(() => {
       container.classList.remove("is-dropping");
     }, 200);
@@ -247,9 +268,12 @@ async function setupDrag(engine: PetEngine): Promise<void> {
     } else {
       container.classList.remove("is-lifting");
       if (isFocusMode) {
+        isBubbleLocked = true;
         showSpeech("嘘，专心工作...", 2000);
+        setTimeout(() => { isBubbleLocked = false; }, 2000);
       } else {
         spawnParticles(e.clientX, e.clientY);
+        playSound("pop");
       }
     }
 
@@ -314,18 +338,34 @@ async function startFocusMode(minutes: number, engine: PetEngine): Promise<void>
   isFocusMode = true;
   engine.applyState("waiting");
   focusEndTime = Date.now() + minutes * 60000;
-  showSpeech(`专注 ${minutes} 分钟，开始!`, 3000);
 
-  focusIntervalId = setInterval(async () => {
-    const remaining = Math.max(0, focusEndTime - Date.now());
-    if (remaining <= 0) {
-      await endFocusMode(true, engine);
-      return;
-    }
-    const min = Math.floor(remaining / 60000);
-    const sec = Math.floor((remaining % 60000) / 1000);
-    showSpeech(`专注中 ${min}:${sec.toString().padStart(2, "0")}`, 2000);
-  }, 1000);
+  // 显示开始提示并锁定气泡，防止倒计时覆盖
+  isBubbleLocked = true;
+  showSpeech(`专注 ${minutes} 分钟，开始！`, 3000);
+  setTimeout(() => { isBubbleLocked = false; }, 3000);
+
+  // 延迟 3 秒后再启动倒计时轮询，避免覆盖开始提示
+  setTimeout(() => {
+    // 先用极大时长显示气泡，使其进入稳定显示状态
+    showSpeech("专注中...", 9999999);
+
+    focusIntervalId = setInterval(async () => {
+      const remaining = Math.max(0, focusEndTime - Date.now());
+      if (remaining <= 0) {
+        await endFocusMode(true, engine);
+        return;
+      }
+      const min = Math.floor(remaining / 60000);
+      const sec = Math.floor((remaining % 60000) / 1000);
+      if (!isBubbleLocked) {
+        // 直接刷新文字内容，不重新触发 CSS 气泡动画，避免闪烁
+        const bubbleText = document.querySelector("#pet-speech-bubble .bubble-text") as HTMLElement | null;
+        if (bubbleText) {
+          bubbleText.textContent = `专注中 ${min}:${sec.toString().padStart(2, "0")}`;
+        }
+      }
+    }, 1000);
+  }, 3000);
 }
 
 async function endFocusMode(_isAuto: boolean, engine: PetEngine): Promise<void> {
@@ -333,19 +373,21 @@ async function endFocusMode(_isAuto: boolean, engine: PetEngine): Promise<void> 
     clearInterval(focusIntervalId);
     focusIntervalId = null;
   }
+  if (_isAuto) playSound("bell");
   isFocusMode = false;
+  isBubbleLocked = false;
 
   const appWindow = getCurrentWindow();
   await appWindow.setAlwaysOnTop(true);
   engine.applyState("jumping");
-  showSpeech("专注结束，辛苦啦!", 8000);
+  showSpeech("专注结束，辛苦啦！", 4000);
 
   setTimeout(async () => {
     if (!isExiting) {
       engine.applyState("idle");
       await appWindow.setAlwaysOnTop(cachedAlwaysOnTop);
     }
-  }, 8000);
+  }, 4000);
 }
 
 async function setupContextMenu(engine: PetEngine): Promise<void> {
@@ -371,20 +413,24 @@ async function setupContextMenu(engine: PetEngine): Promise<void> {
       items: [
         { id: "import", text: "导入宠物 (.zip)", action: () => openImportDialog(engine) },
         { item: "Separator" },
-        { id: "idle", text: "待机", action: () => engine.applyState("idle") },
-        { id: "waving", text: "打招呼", action: () => engine.applyState("waving") },
-        { id: "jumping", text: "跳跃", action: () => engine.applyState("jumping") },
-        { id: "running", text: "奔跑", action: () => engine.applyState("running") },
-        { id: "failed", text: "失败", action: () => engine.applyState("failed") },
-        { id: "waiting", text: "等待", action: () => engine.applyState("waiting") },
-        { id: "review", text: "思考", action: () => engine.applyState("review") },
+        await Submenu.new({
+          text: "动作演示",
+          items: [
+            { id: "idle", text: "待机", action: () => engine.applyState("idle") },
+            { id: "waving", text: "打招呼", action: () => engine.applyState("waving") },
+            { id: "jumping", text: "跳跃", action: () => engine.applyState("jumping") },
+            { id: "running", text: "奔跑", action: () => engine.applyState("running") },
+            { id: "failed", text: "失败", action: () => engine.applyState("failed") },
+            { id: "waiting", text: "等待", action: () => engine.applyState("waiting") },
+            { id: "review", text: "思考", action: () => engine.applyState("review") },
+          ],
+        }),
         { item: "Separator" },
         { id: "toggle-top", text: topLabel, action: async () => {
           isAlwaysOnTop = !isAlwaysOnTop;
           localStorage.setItem("pet-always-on-top", String(isAlwaysOnTop));
           await appWindow.setAlwaysOnTop(isAlwaysOnTop);
         }},
-        { item: "Separator" },
         await Submenu.new({
           text: "定时专注",
           items: [
@@ -580,6 +626,7 @@ function showSpeech(text: string, durationMs: number): void {
 
   bubbleText.textContent = text;
   bubble.classList.add("show-bubble");
+  playSound("bubble");
 
   setTimeout(() => {
     bubble.classList.remove("show-bubble");
