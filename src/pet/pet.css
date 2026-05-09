@@ -43,6 +43,7 @@ html, body {
   width: 192px;
   height: 208px;
   background-repeat: no-repeat;
+  filter: url(#remove-fringe);
 }
 
 #pet-hitbox {
@@ -149,4 +150,96 @@ html, body {
     opacity: 0;
     transform: translateY(-50px) scale(1.5);
   }
+}
+
+/* ── Volume Panel (Windows 11 fluent) ── */
+
+#volume-panel {
+  position: absolute;
+  bottom: -50px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 30, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #ffffff;
+  padding: 6px 14px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 9999;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  transition: bottom 0.25s ease;
+}
+
+.volume-icon {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.7;
+  user-select: none;
+}
+
+#volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 120px;
+  height: 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  background: transparent;
+  outline: none;
+}
+
+#volume-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+}
+
+#volume-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+}
+
+#volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  margin-top: -4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transition: transform 0.1s ease;
+}
+
+#volume-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transition: transform 0.1s ease;
+}
+
+#volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+#volume-slider::-moz-range-thumb:hover {
+  transform: scale(1.2);
+}
+
+#volume-text {
+  min-width: 28px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  user-select: none;
 }

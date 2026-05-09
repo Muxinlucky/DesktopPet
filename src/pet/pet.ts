@@ -205,7 +205,7 @@ function forceEndDrag(engine: PetEngine, container: HTMLElement): void {
     engine.applyState("idle");
     container.classList.remove("is-lifting");
     container.classList.add("is-dropping");
-    playSound("boing");
+    if (!isFocusMode) playSound("boing");
     setTimeout(() => {
       container.classList.remove("is-dropping");
     }, 200);
@@ -425,6 +425,13 @@ async function setupContextMenu(engine: PetEngine): Promise<void> {
             { id: "review", text: "思考", action: () => engine.applyState("review") },
           ],
         }),
+        { id: "volume", text: "调节音量", action: () => {
+          const panel = document.getElementById("volume-panel");
+          if (panel) {
+            panel.style.display = "flex";
+            panel.style.bottom = "20px";
+          }
+        }},
         { item: "Separator" },
         { id: "toggle-top", text: topLabel, action: async () => {
           isAlwaysOnTop = !isAlwaysOnTop;
@@ -434,8 +441,9 @@ async function setupContextMenu(engine: PetEngine): Promise<void> {
         await Submenu.new({
           text: "定时专注",
           items: [
+            { id: "focus-5", text: "5 分钟", action: () => startFocusMode(5, engine) },
             { id: "focus-15", text: "15 分钟", action: () => startFocusMode(15, engine) },
-            { id: "focus-25", text: "25 分钟", action: () => startFocusMode(25, engine) },
+            { id: "focus-30", text: "30 分钟", action: () => startFocusMode(30, engine) },
             { id: "focus-45", text: "45 分钟", action: () => startFocusMode(45, engine) },
             { id: "focus-60", text: "60 分钟", action: () => startFocusMode(60, engine) },
             { item: "Separator" as const },
@@ -633,6 +641,41 @@ function showSpeech(text: string, durationMs: number): void {
   }, durationMs);
 }
 
+// ── Volume Panel ──
+
+function setupVolumePanel(): void {
+  const panel = document.getElementById("volume-panel");
+  const slider = document.getElementById("volume-slider") as HTMLInputElement | null;
+  const text = document.getElementById("volume-text");
+  if (!panel || !slider || !text) return;
+
+  // 初始化轨道进度背景
+  const initPct = slider.value + "%";
+  slider.style.background =
+    `linear-gradient(to right, #00BFFF ${initPct}, rgba(255,255,255,0.2) ${initPct})`;
+
+  slider.addEventListener("input", () => {
+    const value = parseInt(slider.value, 10);
+    text.textContent = String(value);
+    const level = value / 100;
+    Object.values(sfx).forEach((audio) => { audio.volume = level; });
+
+    // 动态轨道进度：天蓝色填充左侧，灰色填充右侧
+    const pct = value + "%";
+    slider.style.background =
+      `linear-gradient(to right, #00BFFF ${pct}, rgba(255,255,255,0.2) ${pct})`;
+  });
+
+  slider.addEventListener("change", () => {
+    playSound("pop");
+  });
+
+  panel.addEventListener("mouseleave", () => {
+    panel.style.display = "none";
+    panel.style.bottom = "-50px";
+  });
+}
+
 // ── Init ──
 
 async function main(): Promise<void> {
@@ -658,6 +701,7 @@ async function main(): Promise<void> {
   setupEyeTracking();
   setupBioClock(engine);
   setupWakeUp(engine);
+  setupVolumePanel();
   console.log("VibePet engine initialized");
 }
 

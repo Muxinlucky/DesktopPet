@@ -6,11 +6,25 @@
     <title>VibePet</title>
   </head>
   <body>
+    <svg width="0" height="0" style="position: absolute;">
+      <filter id="remove-fringe" color-interpolation-filters="sRGB">
+        <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="original-alpha"/>
+        <feMorphology in="original-alpha" operator="erode" radius="1" result="eroded-alpha"/>
+        <feGaussianBlur in="eroded-alpha" stdDeviation="0.5" result="blurred-alpha"/>
+        <feColorMatrix in="blurred-alpha" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 10 -5" result="final-alpha"/>
+        <feComposite in="SourceGraphic" in2="final-alpha" operator="in"/>
+      </filter>
+    </svg>
     <div id="pet-container">
       <div id="pet-speech-bubble"><span class="bubble-text"></span></div>
       <div id="pet-sprite"></div>
       <div id="pet-hitbox"></div>
     </div>
     <script type="module" src="./pet.ts"></script>
+    <div id="volume-panel" style="display: none;">
+      <span class="volume-icon">Vol</span>
+      <input type="range" id="volume-slider" min="0" max="100" value="60">
+      <span id="volume-text">60</span>
+    </div>
   </body>
 </html>
