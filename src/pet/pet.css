@@ -445,3 +445,251 @@ html, body {
   background: rgba(16, 185, 129, 0.2) !important;
   box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
 }
+
+/* ── Todo Panel (Neon Geek) ── */
+
+#todo-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 280px;
+  box-sizing: border-box;
+  background: rgba(20, 20, 30, 0.95);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(0, 255, 170, 0.3);
+  border-radius: 16px;
+  padding: 14px;
+  color: #eeeeee;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  z-index: 9999;
+  box-shadow: 0 0 18px rgba(0, 255, 170, 0.15), 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+
+.todo-panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-align: center;
+  color: #00ffaa;
+  text-shadow: 0 0 8px rgba(0, 255, 170, 0.6);
+  margin-bottom: 8px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(0, 255, 170, 0.15);
+  user-select: none;
+}
+
+.todo-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+#todo-input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(0, 255, 170, 0.2);
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+  font-size: 12px;
+  font-family: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#todo-input:focus {
+  border-color: #00ffaa;
+  box-shadow: 0 0 6px rgba(0, 255, 170, 0.3);
+}
+
+#todo-input::placeholder {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+#todo-submit {
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #00ffaa, #00cc88);
+  color: #0a0a0a;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  letter-spacing: 1px;
+  transition: all 0.2s;
+}
+
+#todo-submit:hover {
+  background: linear-gradient(135deg, #33ffbb, #00ffaa);
+  box-shadow: 0 0 10px rgba(0, 255, 170, 0.4);
+}
+
+#todo-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+#todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-bottom: 40px;
+}
+
+#todo-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+#todo-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#todo-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 170, 0.2);
+  border-radius: 2px;
+}
+
+/* Note item (permanent memo) */
+
+.todo-item-note {
+  overflow: hidden;
+  background: rgba(0, 255, 170, 0.06);
+  border: 1px solid rgba(0, 255, 170, 0.12);
+  border-radius: 8px;
+  padding: 8px 10px;
+  animation: todo-fade-in 0.25s ease;
+}
+
+.todo-item-note .todo-text {
+  font-size: 12px;
+  color: #d0d0d0;
+  word-break: break-word;
+}
+
+.todo-actions {
+  float: right;
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+  margin-bottom: 4px;
+}
+
+.todo-done-btn {
+  background: transparent;
+  border: 1px solid rgba(0, 255, 170, 0.3);
+  color: #00ffaa;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 9px;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 1px;
+  transition: all 0.2s;
+}
+
+.todo-done-btn:hover {
+  background: rgba(0, 255, 170, 0.15);
+  border-color: #00ffaa;
+}
+
+.todo-copy-btn {
+  background: transparent;
+  border: 1px solid rgba(0, 255, 170, 0.3);
+  color: #00ffaa;
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.todo-copy-btn:hover {
+  background: rgba(0, 255, 170, 0.15);
+  border-color: #00ffaa;
+}
+
+.todo-copy-btn svg {
+  filter: drop-shadow(0 0 2px rgba(0, 255, 170, 0.5));
+}
+
+/* Reminder item (countdown) */
+
+.todo-item-reminder {
+  overflow: hidden;
+  background: rgba(60, 130, 246, 0.08);
+  border: 1px solid rgba(60, 130, 246, 0.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  animation: todo-fade-in 0.25s ease;
+}
+
+.todo-item-reminder .todo-text {
+  font-size: 12px;
+  color: #d0d0d0;
+  word-break: break-word;
+}
+
+.todo-item-reminder .todo-countdown {
+  float: right;
+  font-size: 11px;
+  margin-left: 8px;
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: #3c82f6;
+  text-shadow: 0 0 6px rgba(60, 130, 246, 0.4);
+  min-width: 60px;
+  text-align: right;
+}
+
+/* Reminder pulse (pet visual feedback) */
+
+#pet-container.reminder-pulse {
+  animation: reminderPulse 1.2s ease-in-out infinite;
+  filter: drop-shadow(0 0 20px rgba(255, 60, 60, 0.8)) !important;
+}
+
+@keyframes reminderPulse {
+  0%, 100% { transform: translateX(-50%) scale(0.6); }
+  50% { transform: translateX(-50%) scale(0.78); }
+}
+
+@keyframes todo-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── File Drop (Trash) ── */
+
+#pet-container.drag-over {
+  transform: translateX(-50%) scale(0.66) !important;
+  filter: drop-shadow(0 0 15px rgba(239, 68, 68, 0.6));
+  transition: all 0.2s ease;
+}
+
+@keyframes swallowJump {
+  0% { transform: translateX(-50%) scale(0.66); }
+  30% { transform: translateX(-50%) translateY(-30px) scale(0.63); }
+  50% { transform: translateX(-50%) scale(0.69); }
+  70% { transform: translateX(-50%) translateY(-15px) scale(0.6); }
+  100% { transform: translateX(-50%) scale(0.6); }
+}
+
+#pet-container.anim-swallow {
+  animation: swallowJump 0.5s ease-in-out !important;
+}

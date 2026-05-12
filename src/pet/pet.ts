@@ -54,9 +54,10 @@ const CODEX_ATLAS: PetAtlas = {
 
 const sfx = {
   pop: new Audio(new URL("../assets/audio/pop.mp3", import.meta.url).href),
-  boing: new Audio(new URL("../assets/audio/boing.mp3", import.meta.url).href),
+  boing: new Audio(new URL("../assets/audio/alexzavesa-water-drop-tap-3-463592.mp3", import.meta.url).href),
   bubble: new Audio(new URL("../assets/audio/bubble.mp3", import.meta.url).href),
   bell: new Audio(new URL("../assets/audio/bell.mp3", import.meta.url).href),
+  crunch: new Audio(new URL("../assets/audio/crunch.mp3", import.meta.url).href),
 };
 
 Object.values(sfx).forEach((audio) => {
@@ -210,6 +211,26 @@ const LS_PERSONA_MODE = "pet_persona_mode";
 const LS_CUSTOM_PERSONA = "pet_custom_persona_text";
 const LS_GITHUB_USERNAME = "pet_github_username";
 const LS_GITHUB_LAST_PUSH = "pet_github_last_push_time";
+const LS_TODOS = "pet_todos";
+
+interface TodoItem {
+  id: string;
+  type: "note" | "reminder";
+  taskText: string;
+  createdAt: number;
+  delayMinutes: number | null;
+}
+
+const todoTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let reminderAudio: HTMLAudioElement | null = null;
+
+function formatDelay(minutes: number): string {
+  if (minutes < 1) return `${Math.round(minutes * 60)}秒`;
+  if (minutes < 60) return `${Math.round(minutes)}分钟`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m > 0 ? `${h}小时${m}分钟` : `${h}小时`;
+}
 
 let lastSmartSpeechTimestamp = 0;
 const SMART_COOLDOWN = 10 * 60 * 1000;
@@ -394,6 +415,351 @@ function setupGitHubSettingsPanel(): void {
   cancelBtn.addEventListener("click", () => {
     panel.style.display = "none";
   });
+}
+
+// ── Smart Todo Panel ──
+
+function showTodoPanel(): void {
+  const panel = document.getElementById("todo-panel");
+  if (!panel) return;
+  panel.style.display = "block";
+}
+
+async function parseTodoIntent(userInput: string): Promise<TodoItem | null> {
+  // 本地正则先拦截常见时间格式，不走 API
+  const localResult = matchLocalReminder(userInput);
+  if (localResult) return localResult;
+
+  // 纯文字任务交给大模型判断
+  const endpoint0 = localStorage.getItem(LS_API_ENDPOINT);
+  const apiKey = localStorage.getItem(LS_API_KEY);
+  const model = localStorage.getItem(LS_API_MODEL) || "gpt-3.5-turbo";
+  if (!endpoint0 || !apiKey) {
+    showSpeech("请先配置 API 节点", 3000);
+    return null;
+  }
+
+  let endpoint = endpoint0.trim().replace(/\/+$/, "");
+  if (!/\/v1(\/|$)/.test(endpoint)) {
+    endpoint += "/v1";
+  }
+  if (!endpoint.endsWith("/chat/completions")) {
+    endpoint += "/chat/completions";
+  }
+
+  const systemPrompt = 'Reply only with JSON: {"type":"note","delayMinutes":null,"taskText":"<task>"}.';
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userInput },
+        ],
+        max_tokens: 80,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(() => "");
+      console.error(`parseTodoIntent HTTP ${resp.status}:`, errBody);
+      throw new Error(`HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    if (data.error) {
+      console.error("parseTodoIntent API error:", data.error);
+      throw new Error(data.error.message || "API error");
+    }
+
+    const raw = data.choices?.[0]?.message?.content?.trim();
+    if (!raw) throw new Error("Empty response");
+
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON found");
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    return {
+      id: `todo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: parsed.type === "reminder" ? "reminder" : "note",
+      taskText: String(parsed.taskText || userInput),
+      createdAt: Date.now(),
+      delayMinutes: parsed.type === "reminder" ? Number(parsed.delayMinutes) : null,
+    };
+  } catch (err) {
+    // API 失败时降级为本地备忘录
+    console.warn("parseTodoIntent API failed, fallback to note:", err);
+    return {
+      id: `todo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: "note",
+      taskText: userInput,
+      createdAt: Date.now(),
+      delayMinutes: null,
+    };
+  }
+}
+
+/** 本地正则匹配常见时间格式，命中直接返回 reminder，不走 API */
+function matchLocalReminder(input: string): TodoItem | null {
+  const patterns: [RegExp, (m: RegExpMatchArray) => number][] = [
+    // Xs / X秒
+    [/\b(\d+)\s*[sS秒]/, (m) => +m[1] / 60],
+    // X分钟 / X分
+    [/\b(\d+)\s*[分mM][钟]?/, (m) => +m[1]],
+    // X小时
+    [/\b(\d+)\s*[hH小时]/, (m) => +m[1] * 60],
+  ];
+
+  for (const [re, toMinutes] of patterns) {
+    const m = input.match(re);
+    if (m) {
+      const minutes = toMinutes(m);
+      if (minutes > 0) {
+        // 去掉时间描述 + "后" + "提醒我/叫我" + 尾部标点，提取核心任务
+        let taskText = input
+          .replace(re, "")
+          .replace(/^后/, "")
+          .replace(/提醒我|提醒一下我|叫我|叫一下我/g, "")
+          .replace(/[,，。、;；!！\s]+$/g, "")
+          .trim();
+        return {
+          id: `todo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          type: "reminder",
+          taskText: taskText || "",
+          createdAt: Date.now(),
+          delayMinutes: Math.max(minutes, 1 / 60), // 最少 1 秒
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function setupTodoPanel(): void {
+  const panelEl = document.getElementById("todo-panel");
+  const inputEl = document.getElementById("todo-input") as HTMLInputElement | null;
+  const submitBtnEl = document.getElementById("todo-submit") as HTMLButtonElement | null;
+  const listEl = document.getElementById("todo-list");
+  if (!panelEl || !inputEl || !submitBtnEl || !listEl) return;
+  const panel = panelEl;
+  const input = inputEl;
+  const submitBtn = submitBtnEl;
+  const list = listEl;
+
+  // 点击面板外部关闭
+  document.addEventListener("mousedown", (e) => {
+    if (panel.style.display === "block" && !panel.contains(e.target as Node)) {
+      panel.style.display = "none";
+    }
+  });
+
+  function renderNoteItem(item: TodoItem): void {
+    const el = document.createElement("div");
+    el.className = "todo-item-note";
+    el.id = `todo-${item.id}`;
+
+    const text = document.createElement("span");
+    text.className = "todo-text";
+    text.textContent = item.taskText;
+
+    const actions = document.createElement("div");
+    actions.className = "todo-actions";
+
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "todo-copy-btn";
+    copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(item.taskText).then(() => {
+        showSpeech("内容已复制！", 2000);
+      }).catch(() => {});
+    });
+
+    const doneBtn = document.createElement("button");
+    doneBtn.className = "todo-done-btn";
+    doneBtn.textContent = "DONE";
+    doneBtn.addEventListener("click", () => {
+      const todos = (JSON.parse(localStorage.getItem(LS_TODOS) || "[]") as TodoItem[]).filter((t) => t.id !== item.id);
+      localStorage.setItem(LS_TODOS, JSON.stringify(todos));
+      el.style.opacity = "0";
+      el.style.transition = "opacity 0.2s";
+      setTimeout(() => el.remove(), 200);
+    });
+
+    actions.appendChild(copyBtn);
+    actions.appendChild(doneBtn);
+    el.appendChild(actions);
+    el.appendChild(text);
+    list.prepend(el);
+  }
+
+  function renderReminderItem(item: TodoItem): void {
+    const el = document.createElement("div");
+    el.className = "todo-item-reminder";
+    el.id = `todo-${item.id}`;
+
+    const text = document.createElement("span");
+    text.className = "todo-text";
+    text.textContent = item.taskText;
+
+    const countdown = document.createElement("span");
+    countdown.className = "todo-countdown";
+
+    const endAt = item.createdAt + (item.delayMinutes || 0) * 60000;
+
+    function tick(): void {
+      const remaining = Math.max(0, endAt - Date.now());
+      if (remaining <= 0) {
+        countdown.textContent = "00:00";
+        return;
+      }
+      const m = Math.floor(remaining / 60000);
+      const s = Math.floor((remaining % 60000) / 1000);
+      countdown.textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+    tick();
+    const intervalId = setInterval(tick, 1000);
+    todoTimers.set(`${item.id}_tick`, intervalId as unknown as ReturnType<typeof setTimeout>);
+
+    el.appendChild(countdown);
+    el.appendChild(text);
+    list.prepend(el);
+  }
+
+  function scheduleReminder(item: TodoItem): void {
+    if (item.type !== "reminder" || !item.delayMinutes) return;
+    const ms = item.delayMinutes * 60000;
+
+    const timerId = setTimeout(async () => {
+      // 先取出 tick 定时器再清理 map
+      const tickTimer = todoTimers.get(`${item.id}_tick`);
+      todoTimers.delete(item.id);
+      todoTimers.delete(`${item.id}_tick`);
+      if (tickTimer) clearInterval(tickTimer);
+
+      // 置顶显示
+      const appWindow = getCurrentWindow();
+      const wasOnTop = isAlwaysOnTop;
+      if (!wasOnTop) await appWindow.setAlwaysOnTop(true);
+
+      // 循环播放 crunch 音效
+      reminderAudio = new Audio(new URL("../assets/audio/crunch.mp3", import.meta.url).href);
+      reminderAudio.loop = true;
+      reminderAudio.volume = Object.values(sfx)[0]?.volume ?? 0.6;
+      reminderAudio.play().catch(() => {});
+
+      const reminderMsg = item.taskText
+        ? `${formatDelay(item.delayMinutes!)}到啦，快去${item.taskText}吧`
+        : `${formatDelay(item.delayMinutes!)}到啦！`;
+      showSpeech(reminderMsg, 999999);
+
+      // 持续视觉反馈
+      const container = document.getElementById("pet-container");
+      if (container) container.classList.add("reminder-pulse");
+
+      // 用户点击宠物后结束提醒
+      const hitbox = document.getElementById("pet-hitbox");
+      let dismissed = false;
+      function dismissReminder(): void {
+        if (dismissed) return;
+        dismissed = true;
+
+        // 停止音效
+        if (reminderAudio) {
+          reminderAudio.pause();
+          reminderAudio = null;
+        }
+
+        // 移除视觉反馈
+        if (container) container.classList.remove("reminder-pulse");
+
+        // 隐藏气泡
+        const bubble = document.getElementById("pet-speech-bubble");
+        if (bubble) bubble.classList.remove("show-bubble");
+
+        // 恢复置顶状态
+        if (!wasOnTop) appWindow.setAlwaysOnTop(false);
+
+        hitbox?.removeEventListener("click", dismissReminder);
+      }
+      hitbox?.addEventListener("click", dismissReminder, { once: true });
+
+      // 自动移除 DOM
+      const el = document.getElementById(`todo-${item.id}`);
+      if (el) {
+        el.style.opacity = "0";
+        el.style.transition = "opacity 0.3s";
+        setTimeout(() => el.remove(), 300);
+      }
+
+      // 清理 localStorage
+      const todos = (JSON.parse(localStorage.getItem(LS_TODOS) || "[]") as TodoItem[]).filter((t) => t.id !== item.id);
+      localStorage.setItem(LS_TODOS, JSON.stringify(todos));
+    }, ms);
+
+    todoTimers.set(item.id, timerId);
+  }
+
+  async function handleSubmit(): Promise<void> {
+    const raw = input.value.trim();
+    if (!raw) return;
+
+    // 立即清空输入并收起面板，给用户即时反馈
+    input.value = "";
+    panel.style.display = "none";
+
+    const item = await parseTodoIntent(raw);
+
+    if (!item) return;
+
+    // 存储
+    const todos: TodoItem[] = JSON.parse(localStorage.getItem(LS_TODOS) || "[]");
+    todos.push(item);
+    localStorage.setItem(LS_TODOS, JSON.stringify(todos));
+
+    if (item.type === "reminder") {
+      renderReminderItem(item);
+      scheduleReminder(item);
+      showSpeech(`已设定 ${formatDelay(item.delayMinutes!)}后提醒`, 3000);
+    } else {
+      renderNoteItem(item);
+      showSpeech("已记录备忘", 2000);
+    }
+  }
+
+  submitBtn.addEventListener("click", handleSubmit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleSubmit();
+  });
+
+  // 恢复已有待办，过滤掉过期的
+  const saved: TodoItem[] = JSON.parse(localStorage.getItem(LS_TODOS) || "[]");
+  const now = Date.now();
+  const kept: TodoItem[] = [];
+  for (const item of saved) {
+    if (item.type === "note") {
+      renderNoteItem(item);
+      kept.push(item);
+    } else if (item.type === "reminder") {
+      const endAt = item.createdAt + (item.delayMinutes || 0) * 60000;
+      if (now < endAt) {
+        renderReminderItem(item);
+        scheduleReminder(item);
+        kept.push(item);
+      }
+    }
+  }
+  if (kept.length !== saved.length) {
+    localStorage.setItem(LS_TODOS, JSON.stringify(kept));
+  }
 }
 
 async function checkGitHubStatus(): Promise<void> {
@@ -722,13 +1088,8 @@ async function setupContextMenu(engine: PetEngine): Promise<void> {
     engine.applyState("idle");
     lastActivityTime = Date.now();
 
-    // Eye icon: open (◉) when pinned, closed (◎) when unpinned
-    const topLabel = isAlwaysOnTop ? "◉ 取消置顶" : "◎ 开启置顶";
-
     const menu = await Menu.new({
       items: [
-        { id: "import", text: "导入宠物 (.zip)", action: () => openImportDialog(engine) },
-        { item: "Separator" },
         await Submenu.new({
           text: "动作演示",
           items: [
@@ -739,6 +1100,19 @@ async function setupContextMenu(engine: PetEngine): Promise<void> {
             { id: "failed", text: "失败", action: () => engine.applyState("failed") },
             { id: "waiting", text: "等待", action: () => engine.applyState("waiting") },
             { id: "review", text: "思考", action: () => engine.applyState("review") },
+          ],
+        }),
+        { id: "todo", text: "自定义代办...", action: () => showTodoPanel() },
+        await Submenu.new({
+          text: "定时专注",
+          items: [
+            { id: "focus-5", text: "5 分钟", action: () => startFocusMode(5, engine) },
+            { id: "focus-15", text: "15 分钟", action: () => startFocusMode(15, engine) },
+            { id: "focus-30", text: "30 分钟", action: () => startFocusMode(30, engine) },
+            { id: "focus-45", text: "45 分钟", action: () => startFocusMode(45, engine) },
+            { id: "focus-60", text: "60 分钟", action: () => startFocusMode(60, engine) },
+            { item: "Separator" as const },
+            { id: "focus-cancel", text: "退出专注", action: () => endFocusMode(false, engine) },
           ],
         }),
         { id: "volume", text: "调节音量", action: () => {
@@ -790,24 +1164,33 @@ async function setupContextMenu(engine: PetEngine): Promise<void> {
           });
         })(),
         { item: "Separator" },
-        { id: "toggle-top", text: topLabel, action: async () => {
-          isAlwaysOnTop = !isAlwaysOnTop;
-          localStorage.setItem("pet-always-on-top", String(isAlwaysOnTop));
-          await appWindow.setAlwaysOnTop(isAlwaysOnTop);
-        }},
-        await Submenu.new({
-          text: "定时专注",
-          items: [
-            { id: "focus-5", text: "5 分钟", action: () => startFocusMode(5, engine) },
-            { id: "focus-15", text: "15 分钟", action: () => startFocusMode(15, engine) },
-            { id: "focus-30", text: "30 分钟", action: () => startFocusMode(30, engine) },
-            { id: "focus-45", text: "45 分钟", action: () => startFocusMode(45, engine) },
-            { id: "focus-60", text: "60 分钟", action: () => startFocusMode(60, engine) },
-            { item: "Separator" as const },
-            { id: "focus-cancel", text: "退出专注", action: () => endFocusMode(false, engine) },
-          ],
-        }),
-        { item: "Separator" },
+        await (async () => {
+          const { enable, disable, isEnabled } = await import("@tauri-apps/plugin-autostart");
+          const autoOn = await isEnabled();
+          const autoLabel = autoOn ? "◉ 开机自启动" : "◎ 开机自启动";
+          const topLabel = isAlwaysOnTop ? "◉ 窗口置顶" : "◎ 窗口置顶";
+          return Submenu.new({
+            text: "设置",
+            items: [
+              { id: "autostart", text: autoLabel, action: async () => {
+                const on = await isEnabled();
+                if (on) {
+                  await disable();
+                  showSpeech("已关闭开机自启动", 2000);
+                } else {
+                  await enable();
+                  showSpeech("已开启开机自启动", 2000);
+                }
+              }},
+              { id: "toggle-top", text: topLabel, action: async () => {
+                isAlwaysOnTop = !isAlwaysOnTop;
+                localStorage.setItem("pet-always-on-top", String(isAlwaysOnTop));
+                await appWindow.setAlwaysOnTop(isAlwaysOnTop);
+              }},
+              { id: "import", text: "导入宠物 (.zip)", action: () => openImportDialog(engine) },
+            ],
+          });
+        })(),
         { id: "quit", text: "退出", action: () => {
           isExiting = true;
           engine.applyState("failed");
@@ -1036,6 +1419,14 @@ function setupVolumePanel(): void {
 // ── Init ──
 
 async function main(): Promise<void> {
+  // 首次启动默认值初始化
+  if (localStorage.getItem("pet-always-on-top") === null) {
+    localStorage.setItem("pet-always-on-top", "true");
+  }
+  if (localStorage.getItem(LS_CHAT_MODE) === null) {
+    localStorage.setItem(LS_CHAT_MODE, "basic");
+  }
+
   const spriteEl = document.getElementById("pet-sprite");
   if (!spriteEl) {
     console.error("Pet sprite element not found");
@@ -1062,11 +1453,60 @@ async function main(): Promise<void> {
   setupApiSettingsPanel();
   setupCustomPersonaPanel();
   setupGitHubSettingsPanel();
+  setupFileDrop();
+  setupTodoPanel();
 
   // GitHub 贡献度监控：启动 3 秒后初检，之后每 5 分钟轮询
   setTimeout(() => checkGitHubStatus(), 3000);
   setInterval(() => checkGitHubStatus(), 5 * 60 * 1000);
   console.log("VibePet engine initialized");
+}
+
+// ── File Drop -> Recycle Bin ──
+
+function setupFileDrop(): void {
+  const container = document.getElementById("pet-container");
+  if (!container) return;
+
+  container.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    container.classList.add("drag-over");
+  });
+
+  container.addEventListener("dragleave", () => {
+    container.classList.remove("drag-over");
+  });
+
+  container.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    container.classList.remove("drag-over");
+
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+
+    const paths: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const path = (files[i] as any).path;
+      if (path) paths.push(path);
+    }
+
+    if (paths.length > 0) {
+      try {
+        await invoke("move_to_trash", { paths });
+      } catch (err) {
+        console.error("move_to_trash failed:", err);
+      }
+    }
+
+    container.classList.remove("anim-swallow");
+    void container.offsetWidth;
+    container.classList.add("anim-swallow");
+    setTimeout(() => container.classList.remove("anim-swallow"), 500);
+
+    playSound("crunch");
+    showSpeech("吧唧吧唧... 垃圾清理完毕！", 3000);
+  });
 }
 
 main();
