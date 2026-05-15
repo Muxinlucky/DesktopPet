@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "SmartTodo",
+  "productName": "VibePet",
   "version": "0.1.0",
   "identifier": "com.vibepet.app",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "pet",
-        "title": "SmartTodo",
+        "title": "VibePet",
         "url": "pet/index.html",
         "width": 192,
         "height": 208,
@@ -26,7 +26,7 @@
       },
       {
         "label": "config",
-        "title": "SmartTodo - Config",
+        "title": "VibePet - Config",
         "url": "config/index.html",
         "width": 800,
         "height": 600,
@@ -44,7 +44,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "msi"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -55,7 +55,7 @@
     "windows": {
       "nsis": {
         "installMode": "both",
-        "startMenuFolder": "SmartTodo"
+        "startMenuFolder": "VibePet"
       }
     }
   }

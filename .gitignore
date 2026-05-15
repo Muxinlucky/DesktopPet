@@ -1,6 +1,3 @@
-# =========================
-# 前端依赖与构建产物 (Node.js/Vite)
-# =========================
 node_modules
 dist
 dist-ssr
@@ -16,27 +13,14 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# =========================
-# 桌面端底层编译产物 (Tauri/Rust)
-# =========================
-# 这是最核心的一句，能拦截所有几百兆的 exe, msi 和中间编译文件！
 src-tauri/target/
 
-# =========================
-# AI 工具缓存
-# =========================
 .claude/
 
-# =========================
-# 环境变量
-# =========================
 .env
 .env.*
 *.local
 
-# =========================
-# 编辑器配置与系统缓存
-# =========================
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -48,8 +32,13 @@ Thumbs.db
 *.sln
 *.sw?
 
-# 拦截所有压缩包
 *.zip
-# 额外保险：拦截可能存在的 7z 或 rar
 *.7z
 *.rar
+
+# Installer and binaries
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.deb

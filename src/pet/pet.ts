@@ -987,7 +987,10 @@ async function loadSpritesheetUrl(): Promise<string> {
   try {
     const pets = await invoke<PetManifest[]>("list_pets");
     if (pets.length > 0) {
-      const pet = pets[0];
+      const savedId = localStorage.getItem("current_pet_id");
+      const pet = savedId
+        ? pets.find(p => p.id === savedId) ?? pets[0]
+        : pets[0];
       const petDir = await invoke<string>("get_pet_dir", { petId: pet.id });
       const spritesheetPath = `${petDir}/${pet.spritesheetPath}`;
       const url = convertFileSrc(spritesheetPath);
@@ -1019,6 +1022,7 @@ async function openImportDialog(engine: PetEngine): Promise<void> {
     const petDir = await invoke<string>("get_pet_dir", { petId: manifest.id });
     const url = convertFileSrc(`${petDir}/${manifest.spritesheetPath}`);
     engine.setSpritesheet(url);
+    localStorage.setItem("current_pet_id", manifest.id);
   } catch (e) {
     console.error("Import failed:", e);
   }
